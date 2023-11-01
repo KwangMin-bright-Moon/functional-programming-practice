@@ -40,3 +40,20 @@ export const pipe =
   (f, ...fs) =>
   (...as) =>
     go(f(...as), ...fs);
+
+export const range = (l) => {
+  let i = -1;
+  let res = [];
+  while (++i < l) {
+    res.push(i);
+  }
+  return res;
+};
+
+export const L = {};
+L.range = function* (l) {
+  let i = -1;
+  while (++i < l) {
+    yield i;
+  }
+};
