@@ -21,15 +21,28 @@ export const filter = curry((f, iter) => {
   return res;
 });
 
+const reduceF = (acc, a, f) =>
+  a instanceof Promise
+    ? a.then(
+        (a) => f(acc, a),
+        (e) => (e == nop ? acc : Promise.reject(e))
+      )
+    : f(acc, a);
+
+const head = (iter) => go1(take(1, iter), ([h]) => h);
+
 export const reduce = curry((f, acc, iter) => {
-  if (!iter) {
-    iter = acc[Symbol.iterator]();
-    acc = iter.next().value;
-  }
-  for (const a of iter) {
-    acc = f(acc, a);
-  }
-  return acc;
+  if (!iter) return reduce(f, head((iter = acc[Symbol.iterator]())), iter);
+
+  iter = iter[Symbol.iterator]();
+  return go1(acc, function recur(acc) {
+    let cur;
+    while (!(cur = iter.next()).done) {
+      acc = reduceF(acc, cur.value, f);
+      if (acc instanceof Promise) return acc.then(recur);
+    }
+    return acc;
+  });
 });
 
 export const go = (...args) => {
@@ -52,11 +65,21 @@ export const range = (l) => {
 
 export const take = curry((l, iter) => {
   let res = [];
-  for (const a of iter) {
-    res.push(a);
-    if (res.length == l) return res;
-  }
-  return res;
+  iter = iter[Symbol.iterator]();
+  return (function recur() {
+    let cur;
+    while (!(cur = iter.next()).done) {
+      const a = cur.value;
+      if (a instanceof Promise) {
+        return a
+          .then((a) => ((res.push(a), res).length == l ? res : recur()))
+          .catch((e) => (e == nop ? recur() : Promise.reject(e)));
+      }
+      res.push(a);
+      if (res.length == l) return res;
+    }
+    return res;
+  })();
 });
 
 const isIterable = (a) => a && a[Symbol.iterator];
@@ -71,11 +94,20 @@ L.range = function* (l) {
 };
 
 L.map = curry(function* (f, iter) {
-  for (const a of iter) yield f(a);
+  for (const a of iter) {
+    yield go1(a, f);
+  }
 });
 
+const nop = Symbol('nop');
+
 L.filter = curry(function* (f, iter) {
-  for (const a of iter) if (f(a)) yield a;
+  for (const a of iter) {
+    const b = go1(a, f);
+    if (b instanceof Promise)
+      yield b.then((b) => (b ? a : Promise.reject(nop)));
+    else if (b) yield a;
+  }
 });
 
 L.entries = function* (obj) {
@@ -107,3 +139,5 @@ export const flatMap = curry(pipe(L.map, flatten));
 // L.map과 L.filter로 기존 map, filter를 구할 수 있다.
 // const map = curry(pipe(L.map, takeAll));
 // const filter = curry(pipe(L.filter, takeAll));
+
+export const go1 = (a, f) => (a instanceof Promise ? a.then(f) : f(a));
